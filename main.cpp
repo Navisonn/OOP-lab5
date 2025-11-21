@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include <list>
 #include <vector>
+
 #include <cstddef>
 #include <cstring>
 #include <cassert>
@@ -12,28 +13,32 @@ private:
     char* buffer;
     std::size_t buffer_size;
     std::size_t used = 0;
-
     using FreeBlock = std::pair<void*, std::size_t>;
     std::list<FreeBlock> free_list;
+
 
     void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override {
         if (!p) return;
         free_list.emplace_back(p, bytes);
     }
 
+
     void* do_allocate(std::size_t bytes, std::size_t alignment) override {
         for (auto it = free_list.begin(); it != free_list.end(); ++it) {
             void* ptr = it->first;
             std::size_t block_size = it->second;
-
             std::size_t space = block_size;
+
+
             void* aligned_ptr = std::align(alignment, bytes, ptr, space);
+
 
             if (aligned_ptr) {
                 std::size_t wasted = static_cast<char*>(aligned_ptr) - static_cast<char*>(ptr);
                 std::size_t remaining = block_size - wasted - bytes;
-
                 free_list.erase(it);
+
+
 
                 if (remaining > 0) {
                     char* remaining_ptr = static_cast<char*>(aligned_ptr) + bytes;
@@ -42,16 +47,16 @@ private:
                 return aligned_ptr;
             }
         }
-
         std::size_t space = buffer_size - used;
         void* ptr = buffer + used;
         void* aligned_ptr = std::align(alignment, bytes, ptr, space);
 
+
         if (!aligned_ptr) {
             throw std::bad_alloc();
         }
-
         std::size_t wasted = static_cast<char*>(aligned_ptr) - (buffer + used);
+
         if (used + wasted + bytes > buffer_size) {
             throw std::bad_alloc();
         }
@@ -63,7 +68,6 @@ private:
     bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
         return this == &other;
     }
-
 public:
     explicit FixedBufferResource(std::size_t size = 1024 * 1024)
         : buffer_size(size), used(0) {
@@ -77,7 +81,6 @@ public:
 
     FixedBufferResource(const FixedBufferResource&) = delete;
     FixedBufferResource& operator=(const FixedBufferResource&) = delete;
-
     FixedBufferResource(FixedBufferResource&& other) noexcept
         : buffer(other.buffer), buffer_size(other.buffer_size), used(other.used), free_list(std::move(other.free_list)) {
         other.buffer = nullptr;
@@ -152,8 +155,11 @@ public:
     void pop() {
         if (!top_node) return;
         Node* old = top_node;
+
         top_node = top_node->next;
+
         alloc.destroy(old);
+
         alloc.deallocate(old, 1);
     }
 
@@ -168,7 +174,6 @@ public:
     }
 
     bool empty() const { return top_node == nullptr; }
-
     void clear() {
         while (!empty()) pop();
     }
@@ -228,48 +233,3 @@ struct Person {
     }
 };
 
-int main() {
-    FixedBufferResource resource(512 * 1024);
-    std::pmr::polymorphic_allocator<int> int_alloc(&resource);
-
-    {
-        Stack<int> st(int_alloc);
-
-        st.push(10);
-        st.push(20);
-        st.push(30);
-
-        std::cout << "Top: " << st.top() << "\n";
-        st.pop();
-        std::cout << "Top after pop: " << st.top() << "\n";
-
-        std::cout << "Elements via iterator:\n";
-        for (int x : st) {
-            std::cout << x << ' ';
-        }
-        std::cout << '\n';
-    }
-
-    {
-        std::pmr::polymorphic_allocator<Person> person_alloc(&resource);
-        Stack<Person> person_stack(person_alloc);
-
-        person_stack.push(Person("Alice", 25));
-        person_stack.push(Person("Bob", 30));
-        person_stack.push(Person("Charlie", 35));
-
-        std::cout << "Top person: " << person_stack.top().name << "\n";
-
-        std::cout << "All persons:\n";
-        for (const auto& p : person_stack) {
-            std::cout << p.name << " (" << p.age << ")\n";
-        }
-
-        person_stack.pop();
-        person_stack.pop();
-    }
-
-    std::cout << "End of program.\n";
-
-    return 0;
-}
