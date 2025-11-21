@@ -12,26 +12,29 @@ private:
     char* buffer;
     std::size_t buffer_size;
     std::size_t used = 0;
+
     using FreeBlock = std::pair<void*, std::size_t>;
     std::list<FreeBlock> free_list;
-
 
     void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override {
         if (!p) return;
         free_list.emplace_back(p, bytes);
     }
 
-
     void* do_allocate(std::size_t bytes, std::size_t alignment) override {
         for (auto it = free_list.begin(); it != free_list.end(); ++it) {
             void* ptr = it->first;
             std::size_t block_size = it->second;
+
             std::size_t space = block_size;
             void* aligned_ptr = std::align(alignment, bytes, ptr, space);
+
             if (aligned_ptr) {
                 std::size_t wasted = static_cast<char*>(aligned_ptr) - static_cast<char*>(ptr);
                 std::size_t remaining = block_size - wasted - bytes;
+
                 free_list.erase(it);
+
                 if (remaining > 0) {
                     char* remaining_ptr = static_cast<char*>(aligned_ptr) + bytes;
                     free_list.emplace_back(remaining_ptr, remaining);
@@ -39,16 +42,20 @@ private:
                 return aligned_ptr;
             }
         }
+
         std::size_t space = buffer_size - used;
         void* ptr = buffer + used;
         void* aligned_ptr = std::align(alignment, bytes, ptr, space);
+
         if (!aligned_ptr) {
             throw std::bad_alloc();
         }
+
         std::size_t wasted = static_cast<char*>(aligned_ptr) - (buffer + used);
         if (used + wasted + bytes > buffer_size) {
             throw std::bad_alloc();
         }
+
         used += wasted + bytes;
         return aligned_ptr;
     }
@@ -65,12 +72,12 @@ public:
     }
 
     ~FixedBufferResource() override {
-
         ::operator delete(buffer);
     }
 
     FixedBufferResource(const FixedBufferResource&) = delete;
     FixedBufferResource& operator=(const FixedBufferResource&) = delete;
+
     FixedBufferResource(FixedBufferResource&& other) noexcept
         : buffer(other.buffer), buffer_size(other.buffer_size), used(other.used), free_list(std::move(other.free_list)) {
         other.buffer = nullptr;
@@ -85,6 +92,7 @@ public:
             buffer_size = other.buffer_size;
             used = other.used;
             free_list = std::move(other.free_list);
+
             other.buffer = nullptr;
             other.buffer_size = 0;
             other.used = 0;
@@ -97,40 +105,19 @@ template<typename T>
 class Stack {
 public:
     using allocator_type = std::pmr::polymorphic_allocator<T>;
+
 private:
     struct Node {
         T value;
         Node* next;
+
         template<typename U>
-        Node(U&& v, Node* n) : value(std::forward<U>(v)), next(n) {}
+        Node(U&& v, Node* n, const allocator_type& alloc)
+            : value(std::forward<U>(v)), next(n) {}
     };
 
     Node* top_node = nullptr;
     allocator_type alloc;
-    using node_allocator_type = typename std::allocator_traits<allocator_type>::template rebind_alloc<Node>;
-    node_allocator_type get_node_allocator() const {
-        return node_allocator_type(alloc);
-    }
-    Node* allocate_node() {
-        node_allocator_type node_alloc = get_node_allocator();
-        return node_alloc.allocate(1);
-    }
-
-
-    void deallocate_node(Node* node) {
-        node_allocator_type node_alloc = get_node_allocator();
-        node_alloc.deallocate(node, 1);
-    }
-    template<typename... Args>
-    void construct_node(Node* node, Args&&... args) {
-        node_allocator_type node_alloc = get_node_allocator();
-        std::allocator_traits<node_allocator_type>::construct(node_alloc, node, std::forward<Args>(args)...);
-    }
-
-    void destroy_node(Node* node) {
-        node_allocator_type node_alloc = get_node_allocator();
-        std::allocator_traits<node_allocator_type>::destroy(node_alloc, node);
-    }
 
 public:
     explicit Stack(const allocator_type& a = allocator_type())
@@ -141,22 +128,22 @@ public:
     }
 
     void push(const T& value) {
-        Node* new_node = allocate_node();
+        Node* new_node = alloc.allocate(1);
         try {
-            construct_node(new_node, value, top_node);
+            alloc.construct(new_node, value, top_node, alloc);
         } catch (...) {
-            deallocate_node(new_node);
+            alloc.deallocate(new_node, 1);
             throw;
         }
         top_node = new_node;
     }
 
     void push(T&& value) {
-        Node* new_node = allocate_node();
+        Node* new_node = alloc.allocate(1);
         try {
-            construct_node(new_node, std::move(value), top_node);
+            alloc.construct(new_node, std::move(value), top_node, alloc);
         } catch (...) {
-            deallocate_node(new_node);
+            alloc.deallocate(new_node, 1);
             throw;
         }
         top_node = new_node;
@@ -166,8 +153,8 @@ public:
         if (!top_node) return;
         Node* old = top_node;
         top_node = top_node->next;
-        destroy_node(old);
-        deallocate_node(old);
+        alloc.destroy(old);
+        alloc.deallocate(old, 1);
     }
 
     T& top() {
@@ -196,8 +183,6 @@ public:
     public:
         using iterator_category = std::forward_iterator_tag;
         using value_type = T;
-
-
         using difference_type = std::ptrdiff_t;
         using pointer = T*;
         using reference = T&;
@@ -221,6 +206,7 @@ public:
             ++(*this);
             return tmp;
         }
+
         bool operator==(const iterator& other) const { return current == other.current; }
         bool operator!=(const iterator& other) const { return !(*this == other); }
     };
@@ -245,6 +231,7 @@ struct Person {
 int main() {
     FixedBufferResource resource(512 * 1024);
     std::pmr::polymorphic_allocator<int> int_alloc(&resource);
+
     {
         Stack<int> st(int_alloc);
 
@@ -266,16 +253,18 @@ int main() {
     {
         std::pmr::polymorphic_allocator<Person> person_alloc(&resource);
         Stack<Person> person_stack(person_alloc);
+
         person_stack.push(Person("Alice", 25));
         person_stack.push(Person("Bob", 30));
-
-        
         person_stack.push(Person("Charlie", 35));
+
         std::cout << "Top person: " << person_stack.top().name << "\n";
+
         std::cout << "All persons:\n";
         for (const auto& p : person_stack) {
             std::cout << p.name << " (" << p.age << ")\n";
         }
+
         person_stack.pop();
         person_stack.pop();
     }
