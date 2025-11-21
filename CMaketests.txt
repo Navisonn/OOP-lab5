@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.15)
+project(StackDemo)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Основной исполняемый файл
+add_executable(demo main.cpp)
+
+# Тестовый исполняемый файл
+add_executable(
+    simple_tests
+    test_stack.cpp
+)
+
+# Добавляем тестовый таргет
+add_custom_target(
+    run_tests
+    COMMAND simple_tests
+    DEPENDS simple_tests
+    COMMENT "Running tests..."
+)
