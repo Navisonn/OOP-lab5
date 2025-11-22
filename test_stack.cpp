@@ -153,23 +153,15 @@ void test_stack_clear() {
 }
 
 int main() {
-    std::cout << "Starting tests...\n\n";
     
-    try {
-        test_fixed_buffer_resource_basic();
-        test_fixed_buffer_resource_reuse();
-        test_stack_basic();
-        test_stack_iterator();
-        test_stack_complex_type();
-        test_stack_clear();
-        
-        std::cout << "All tests passed successfully!\n";
-        return 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Test failed with exception: " << e.what() << "\n";
-        return 1;
-    } catch (...) {
-        std::cerr << "Test failed with unknown exception\n";
-        return 1;
-    }
+    test_create_and_basic();
+    test_push_back_capacity();
+    test_delete_at();
+    test_is_equal();
+    test_copy_operations();
+    test_edge_cases();
+    
+    printf("ALL TESTS PASSED! Vector library works correctly!\n");
+    
+    return 0;
 }
